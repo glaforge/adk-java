@@ -16,11 +16,14 @@
 
 package com.google.adk.agents;
 
+import com.google.adk.agents.ConfigAgentUtils.ConfigurationException;
 import com.google.adk.events.Event;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.reactivex.rxjava3.core.Flowable;
 import java.util.List;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * An agent that runs its sub-agents sequentially in a loop.
@@ -29,6 +32,7 @@ import java.util.Optional;
  * reached (if specified).
  */
 public class LoopAgent extends BaseAgent {
+  private static final Logger logger = LoggerFactory.getLogger(LoopAgent.class);
 
   private final Optional<Integer> maxIterations;
 
@@ -42,16 +46,13 @@ public class LoopAgent extends BaseAgent {
    * @param beforeAgentCallback Optional callback before the agent runs.
    * @param afterAgentCallback Optional callback after the agent runs.
    */
-  private LoopAgent(
-      String name,
-      String description,
-      List<? extends BaseAgent> subAgents,
-      Optional<Integer> maxIterations,
-      List<Callbacks.BeforeAgentCallback> beforeAgentCallback,
-      List<Callbacks.AfterAgentCallback> afterAgentCallback) {
-
-    super(name, description, subAgents, beforeAgentCallback, afterAgentCallback);
-    this.maxIterations = maxIterations;
+  private LoopAgent(Builder builder) {
+    super(
+        builder.name,
+        builder.description,
+        builder.subAgents,
+        builder.callbackPluginBuilder.build());
+    this.maxIterations = builder.maxIterations;
   }
 
   /** Builder for {@link LoopAgent}. */
@@ -72,14 +73,41 @@ public class LoopAgent extends BaseAgent {
 
     @Override
     public LoopAgent build() {
-      // TODO(b/410859954): Add validation for required fields like name.
-      return new LoopAgent(
-          name, description, subAgents, maxIterations, beforeAgentCallback, afterAgentCallback);
+      return new LoopAgent(this);
     }
   }
 
   public static Builder builder() {
     return new Builder();
+  }
+
+  /**
+   * Creates a LoopAgent from configuration.
+   *
+   * @param config The agent configuration.
+   * @param configAbsPath The absolute path to the agent config file.
+   * @return the configured LoopAgent
+   * @throws ConfigurationException if the configuration is invalid
+   */
+  public static LoopAgent fromConfig(LoopAgentConfig config, String configAbsPath)
+      throws ConfigurationException {
+    logger.debug("Creating LoopAgent from config: {}", config.name());
+
+    Builder builder = builder();
+    ConfigAgentUtils.resolveAndSetCommonAgentFields(builder, config, configAbsPath);
+
+    if (config.maxIterations() != null) {
+      builder.maxIterations(config.maxIterations());
+    }
+
+    // Build and return the agent
+    LoopAgent agent = builder.build();
+    logger.info(
+        "Successfully created LoopAgent: {} with {} subagents",
+        agent.name(),
+        agent.subAgents() != null ? agent.subAgents().size() : 0);
+
+    return agent;
   }
 
   @Override

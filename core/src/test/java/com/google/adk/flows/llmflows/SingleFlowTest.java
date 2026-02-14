@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,17 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.google.adk.flows.llmflows;
 
-/**
- * An app contains Resumability configuration for the agents.
- *
- * @param isResumable Whether the app is resumable.
- */
-public record ResumabilityConfig(boolean isResumable) {
+import static com.google.common.truth.Truth.assertThat;
 
-  /** Creates a new {@code ResumabilityConfig} with resumability disabled. */
-  public ResumabilityConfig() {
-    this(false);
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
+
+@RunWith(JUnit4.class)
+public final class SingleFlowTest {
+
+  @Test
+  public void requestProcessors_containsCompaction() {
+    boolean hasCompaction =
+        SingleFlow.REQUEST_PROCESSORS.stream()
+            .anyMatch(processor -> processor instanceof Compaction);
+    assertThat(hasCompaction).isTrue();
   }
 }

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.genai.types.Blob;
+import com.google.genai.types.Content;
 import com.google.genai.types.FileData;
 import com.google.genai.types.FunctionCall;
 import com.google.genai.types.FunctionResponse;
@@ -16,6 +17,7 @@ import io.a2a.spec.FileContent;
 import io.a2a.spec.FilePart;
 import io.a2a.spec.FileWithBytes;
 import io.a2a.spec.FileWithUri;
+import io.a2a.spec.Message;
 import io.a2a.spec.TextPart;
 import java.util.Base64;
 import java.util.HashMap;
@@ -33,7 +35,8 @@ import org.slf4j.LoggerFactory;
  */
 public final class PartConverter {
   private static final Logger logger = LoggerFactory.getLogger(PartConverter.class);
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  private static final ObjectMapper objectMapper = new ObjectMapper();
+
   // Constants for metadata types. By convention metadata keys are prefixed with "adk_" to align
   // with the Python and Golang libraries.
   public static final String A2A_DATA_PART_METADATA_TYPE_KEY = "adk_type";
@@ -172,12 +175,23 @@ public final class PartConverter {
     }
 
     try {
-      String json = OBJECT_MAPPER.writeValueAsString(data);
+      String json = objectMapper.writeValueAsString(data);
       return Optional.of(com.google.genai.types.Part.builder().text(json).build());
     } catch (JsonProcessingException e) {
       logger.warn("Failed to serialize DataPart payload", e);
       return Optional.empty();
     }
+  }
+
+  /**
+   * Converts an A2A Message to a Google GenAI Content object.
+   *
+   * @param message The A2A Message to convert.
+   * @return The converted Google GenAI Content object.
+   */
+  public static Content messageToContent(Message message) {
+    ImmutableList<com.google.genai.types.Part> parts = toGenaiParts(message.getParts());
+    return Content.builder().role("user").parts(parts).build();
   }
 
   /**
@@ -226,7 +240,7 @@ public final class PartConverter {
     }
 
     if (part.text().isPresent()) {
-      return Optional.of(new TextPart(part.text().get()));
+      return Optional.of(new TextPart(part.text().get(), new HashMap<>()));
     }
 
     if (part.fileData().isPresent()) {
@@ -234,7 +248,7 @@ public final class PartConverter {
       String uri = fileData.fileUri().orElse(null);
       String mime = fileData.mimeType().orElse(null);
       String name = fileData.displayName().orElse(null);
-      return Optional.of(new FilePart(new FileWithUri(mime, name, uri)));
+      return Optional.of(new FilePart(new FileWithUri(mime, name, uri), new HashMap<>()));
     }
 
     if (part.inlineData().isPresent()) {
@@ -243,7 +257,7 @@ public final class PartConverter {
       String encoded = bytes != null ? Base64.getEncoder().encodeToString(bytes) : null;
       String mime = blob.mimeType().orElse(null);
       String name = blob.displayName().orElse(null);
-      return Optional.of(new FilePart(new FileWithBytes(mime, name, encoded)));
+      return Optional.of(new FilePart(new FileWithBytes(mime, name, encoded), new HashMap<>()));
     }
 
     if (part.functionCall().isPresent() || part.functionResponse().isPresent()) {
@@ -254,7 +268,7 @@ public final class PartConverter {
     return Optional.empty();
   }
 
-  @SuppressWarnings("unchecked") // safe conversion from OBJECT_MAPPER.readValue
+  @SuppressWarnings("unchecked") // safe conversion from objectMapper.readValue
   private static Map<String, Object> coerceToMap(Object value) {
     if (value == null) {
       return new HashMap<>();
@@ -272,7 +286,7 @@ public final class PartConverter {
         return new HashMap<>();
       }
       try {
-        return OBJECT_MAPPER.readValue(str, Map.class);
+        return objectMapper.readValue(str, Map.class);
       } catch (JsonProcessingException e) {
         logger.warn("Failed to parse map from string payload", e);
         Map<String, Object> fallback = new HashMap<>();

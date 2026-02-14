@@ -51,7 +51,7 @@ import org.slf4j.LoggerFactory;
 public class RequestConfirmationLlmRequestProcessor implements RequestProcessor {
   private static final Logger logger =
       LoggerFactory.getLogger(RequestConfirmationLlmRequestProcessor.class);
-  private static final ObjectMapper OBJECT_MAPPER = JsonBaseModel.getMapper();
+  private static final ObjectMapper objectMapper = JsonBaseModel.getMapper();
   private static final String ORIGINAL_FUNCTION_CALL = "originalFunctionCall";
 
   @Override
@@ -64,41 +64,15 @@ public class RequestConfirmationLlmRequestProcessor implements RequestProcessor 
       return Single.just(RequestProcessingResult.create(llmRequest, ImmutableList.of()));
     }
 
-    int confirmationEventIndex = -1;
-    ImmutableMap<String, ToolConfirmation> responses = ImmutableMap.of();
-    // Search backwards for the most recent user event that contains request confirmation
-    // function responses.
-    for (int i = events.size() - 1; i >= 0; i--) {
-      Event event = events.get(i);
-      if (!Objects.equals(event.author(), "user") || event.functionResponses().isEmpty()) {
-        continue;
-      }
-
-      ImmutableMap<String, ToolConfirmation> confirmationsInEvent =
-          event.functionResponses().stream()
-              .filter(functionResponse -> functionResponse.id().isPresent())
-              .filter(
-                  functionResponse ->
-                      Objects.equals(
-                          functionResponse.name().orElse(null),
-                          REQUEST_CONFIRMATION_FUNCTION_CALL_NAME))
-              .map(this::maybeCreateToolConfirmationEntry)
-              .flatMap(Optional::stream)
-              .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
-      if (!confirmationsInEvent.isEmpty()) {
-        responses = confirmationsInEvent;
-        confirmationEventIndex = i;
-        break;
-      }
-    }
-    if (responses.isEmpty()) {
+    Optional<ConfirmationResult> confirmationResult = findMostRecentConfirmations(events);
+    if (confirmationResult.isEmpty()) {
       logger.trace("No request confirmation function responses found.");
       return Single.just(RequestProcessingResult.create(llmRequest, ImmutableList.of()));
     }
 
-    // Make them final to enable access from lambda expressions.
-    final int finalConfirmationEventIndex = confirmationEventIndex;
-    final ImmutableMap<String, ToolConfirmation> requestConfirmationFunctionResponses = responses;
+    int finalConfirmationEventIndex = confirmationResult.get().eventIndex();
+    ImmutableMap<String, ToolConfirmation> requestConfirmationFunctionResponses =
+        confirmationResult.get().responses();
 
     // Search backwards from the event before confirmation for the corresponding
     // request_confirmation function calls emitted by the model.
@@ -169,13 +143,41 @@ public class RequestConfirmationLlmRequestProcessor implements RequestProcessor 
     return Single.just(RequestProcessingResult.create(llmRequest, ImmutableList.of()));
   }
 
+  private static Optional<ConfirmationResult> findMostRecentConfirmations(
+      ImmutableList<Event> events) {
+    // Search backwards for the most recent user event that contains request confirmation
+    // function responses.
+    for (int i = events.size() - 1; i >= 0; i--) {
+      Event event = events.get(i);
+      if (!Objects.equals(event.author(), "user") || event.functionResponses().isEmpty()) {
+        continue;
+      }
+
+      ImmutableMap<String, ToolConfirmation> confirmationsInEvent =
+          event.functionResponses().stream()
+              .filter(functionResponse -> functionResponse.id().isPresent())
+              .filter(
+                  functionResponse ->
+                      Objects.equals(
+                          functionResponse.name().orElse(null),
+                          REQUEST_CONFIRMATION_FUNCTION_CALL_NAME))
+              .map(RequestConfirmationLlmRequestProcessor::maybeCreateToolConfirmationEntry)
+              .flatMap(Optional::stream)
+              .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+      if (!confirmationsInEvent.isEmpty()) {
+        return Optional.of(new ConfirmationResult(confirmationsInEvent, i));
+      }
+    }
+    return Optional.empty();
+  }
+
   private Optional<FunctionCall> getOriginalFunctionCall(FunctionCall functionCall) {
     if (!functionCall.args().orElse(ImmutableMap.of()).containsKey(ORIGINAL_FUNCTION_CALL)) {
       return Optional.empty();
     }
     try {
       FunctionCall originalFunctionCall =
-          OBJECT_MAPPER.convertValue(
+          objectMapper.convertValue(
               functionCall.args().get().get(ORIGINAL_FUNCTION_CALL), FunctionCall.class);
       if (originalFunctionCall.id().isEmpty()) {
         return Optional.empty();
@@ -220,21 +222,21 @@ public class RequestConfirmationLlmRequestProcessor implements RequestProcessor 
                 invocationContext, functionCallEvent, toolsMap, toolConfirmations));
   }
 
-  private Optional<Map.Entry<String, ToolConfirmation>> maybeCreateToolConfirmationEntry(
+  private static Optional<Map.Entry<String, ToolConfirmation>> maybeCreateToolConfirmationEntry(
       FunctionResponse functionResponse) {
     Map<String, Object> responseMap = functionResponse.response().orElse(ImmutableMap.of());
     if (responseMap.size() != 1 || !responseMap.containsKey("response")) {
       return Optional.of(
           Map.entry(
               functionResponse.id().get(),
-              OBJECT_MAPPER.convertValue(responseMap, ToolConfirmation.class)));
+              objectMapper.convertValue(responseMap, ToolConfirmation.class)));
     }
 
     try {
       return Optional.of(
           Map.entry(
               functionResponse.id().get(),
-              OBJECT_MAPPER.readValue(
+              objectMapper.readValue(
                   (String) responseMap.get("response"), ToolConfirmation.class)));
     } catch (JsonProcessingException e) {
       logger.error("Failed to parse tool confirmation response", e);
@@ -242,4 +244,7 @@ public class RequestConfirmationLlmRequestProcessor implements RequestProcessor 
 
     return Optional.empty();
   }
+
+  private record ConfirmationResult(
+      ImmutableMap<String, ToolConfirmation> responses, int eventIndex) {}
 }

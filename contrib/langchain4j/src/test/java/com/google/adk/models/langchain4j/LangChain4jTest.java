@@ -826,7 +826,7 @@ class LangChain4jTest {
     // IMPORTANT: usageMetadata should be empty when no TokenUsage and no estimator
     assertThat(response.usageMetadata()).isEmpty();
   }
-  
+
   @DisplayName("Should handle MCP tools with parametersJsonSchema")
   void testGenerateContentWithMcpToolParametersJsonSchema() {
     // Given

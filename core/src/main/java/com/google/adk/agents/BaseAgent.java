@@ -285,10 +285,12 @@ public abstract class BaseAgent {
     InvocationContext.Builder builder = parentContext.toBuilder();
     builder.agent(this);
     // Check for branch to be truthy (not None, not empty string),
-    parentContext
-        .branch()
-        .filter(s -> !s.isEmpty())
-        .ifPresent(branch -> builder.branch(branch + "." + name()));
+    String parentBranch = parentContext.branch().filter(s -> !s.isEmpty()).orElse(null);
+    if (parentBranch == null) {
+      builder.branch(name());
+    } else {
+      builder.branch(parentBranch + "." + name());
+    }
     return builder.build();
   }
 
